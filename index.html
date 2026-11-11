@@ -242,7 +242,33 @@ function save(){
 let tt;
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',2500)}
 let ac;
-function beep(ok){try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=ok?1000:300;g.gain.value=.08;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+(ok?.08:.25))}catch(e){}}
+function getAC(){
+  try{
+    ac=ac||new(window.AudioContext||window.webkitAudioContext)();
+    if(ac.state==='suspended')ac.resume();
+  }catch(e){}
+  return ac;
+}
+/* الآيفون والمتصفحات بتمنع الصوت قبل أول لمسة، فنفعّله عند أول تفاعل */
+['pointerdown','touchstart','touchend','keydown','click'].forEach(ev=>document.addEventListener(ev,getAC,{passive:true}));
+function tone(freq,start,dur,type,vol){
+  const a=getAC();if(!a)return;
+  try{
+    const o=a.createOscillator(),g=a.createGain(),t=a.currentTime+start;
+    o.type=type||'square';o.frequency.value=freq;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+.005);
+    g.gain.setValueAtTime(vol,t+Math.max(dur-.015,.01));
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+dur+.02);
+  }catch(e){}
+}
+/* true أو 'scan': بيب قارئ الباركود | 'error': بيب القراءة ثم صوت خطأ | 'done': إتمام البيع */
+function beep(kind){
+  if(kind==='done'){tone(1200,0,.1,'sine',.2);tone(1800,.11,.18,'sine',.2);return}
+  tone(2600,0,.11,'square',.15);
+  if(kind==='error'||kind===false){tone(220,.2,.18,'sawtooth',.2);tone(150,.4,.35,'sawtooth',.2)}
+}
 function download(name,text,type){
   const b=new Blob(['\ufeff'+text],{type:type||'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();
@@ -287,11 +313,12 @@ function submitCode(v){
   const p=findP(code);
   if(p){addToCart(p,qty);beep(true);return}
   if(/^\d{4,}$/.test(code)){
-    beep(false);toast('باركود غير مسجّل - أضف المنتج');openDlg({barcode:code},true);return;
+    beep('error');toast('باركود غير مسجّل - أضف المنتج');openDlg({barcode:code},true);return;
   }
   const hits=products.filter(x=>x.name.toLowerCase().includes(code.toLowerCase()));
   if(hits.length===1){addToCart(hits[0],qty);beep(true)}
-  else{beep(false);toast(hits.length?'اختر المنتج من القائمة':'المنتج غير موجود')}
+  else if(hits.length){toast('اختر المنتج من القائمة')}
+  else{beep('error');toast('المنتج غير موجود')}
 }
 function showSug(v){
   const box=$('#sug');
@@ -380,7 +407,7 @@ function pay(){
   const l=$('#last');
   l.style.display='block';
   l.innerHTML=`تمت الفاتورة رقم <b>${sale.id}</b><br>الإجمالي: <b>${money(sale.total)}</b> · الباقي للزبون: <b style="font-size:20px">${money(sale.change)}</b>`;
-  beep(true);
+  beep('done');
   if(settings.autoPrint)printReceipt(sale);
   clearCart(false);
 }
